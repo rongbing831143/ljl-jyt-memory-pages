@@ -30,6 +30,7 @@
    if(pending.has(marker))return pending.get(marker);
    const task=(async()=>{await acquire();try{const entry=entries.get(marker);const bytes=await decrypt(entry.file,key);const blob=new Blob([bytes],{type:entry.type});const value={blob,url:URL.createObjectURL(blob)};cache.set(marker,value);return value;}finally{release();pending.delete(marker);}})();pending.set(marker,task);return task;
   }
+  window.albumMediaURL=async src=>aliases[src]?(await load(aliases[src])).url:src;
   window.fetch=async(input,options)=>{
    const url=typeof input==='string'?input:input.url;
    if(entries.has(url))return new Response((await load(url)).blob);
