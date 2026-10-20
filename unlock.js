@@ -29,8 +29,8 @@
    if(pending.has(marker))return pending.get(marker);
    const task=(async()=>{await acquire();try{const entry=entries.get(marker);const bytes=await decrypt(entry.file,key);const blob=new Blob([bytes],{type:entry.type});const value={blob,url:URL.createObjectURL(blob)};cache.set(marker,value);return value;}finally{release();pending.delete(marker);}})();pending.set(marker,task);return task;
   }
-  // Fetch and validate every still image before entering. Keep compressed Blobs,
-  // not hundreds of decoded bitmaps, to avoid exhausting mobile memory.
+  // Validate the requested early date range before entering; later images follow
+  // in the background. Retain compressed Blobs rather than decoded bitmaps.
   const loader=document.createElement('section');loader.className='sweet-loading';loader.setAttribute('aria-labelledby','sweetTitle');
   loader.innerHTML=`<div class="sweet-card"><span class="sweet-eyebrow">A LITTLE MOMENT OF SWEETNESS</span><div class="sweet-cloud" aria-hidden="true"><i></i><b>ᴗ</b><span>♡</span></div><h1 id="sweetTitle">甜蜜加载中......</h1><p>正在把我们的回忆，装进软软的云朵里</p><div id="sweetProgress" class="sweet-track" role="progressbar" aria-label="照片预加载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="sweet-fill"><span>♡</span></div></div><strong id="sweetPercent">0%</strong><p id="sweetCount">正在准备照片…</p><p id="sweetStatus" role="status">全部照片准备好后，就能慢慢翻阅啦。</p><button id="sweetRetry" hidden>再收集一次小甜蜜 ♡</button><small>首次加载需要一点时间，请保持页面打开。<br>视频在点击时加载，不影响照片预览。</small></div>`;
   const loaderStyle=document.createElement('style');loaderStyle.textContent=`
@@ -43,8 +43,11 @@
   @keyframes sweetFloat{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-8px) rotate(3deg)}}@keyframes sweetFlow{to{background-position:150px 0}}
   @media(prefers-reduced-motion:reduce){.sweet-cloud,.sweet-fill{animation:none}.sweet-fill{transition:none}}
   `;document.head.append(loaderStyle);document.body.append(loader);
-  const imageMarkers=[...entries].filter(([,entry])=>entry.type.startsWith('image/')).map(([marker])=>marker),ready=new Set();
-  const progress=()=>{const percent=imageMarkers.length?Math.floor(ready.size/imageMarkers.length*100):100;loader.querySelector('.sweet-fill').style.width=percent+'%';loader.querySelector('#sweetPercent').textContent=percent+'%';loader.querySelector('#sweetProgress').setAttribute('aria-valuenow',percent);loader.querySelector('#sweetCount').textContent=`已收好 ${ready.size} / ${imageMarkers.length} 张照片与视频封面`;};
+  const allImageMarkers=[...entries].filter(([,entry])=>entry.type.startsWith('image/')).map(([marker])=>marker);
+  const initialSources=new Set(bundle.photos.filter(p=>p.date&&p.date>='2024-01-01'&&p.date<'2025-07-01').flatMap(p=>[p.src,p.poster].filter(Boolean)));
+  const imageMarkers=[...new Set([...initialSources].map(src=>aliases[src]).filter(marker=>entries.get(marker)?.type.startsWith('image/')))],ready=new Set();
+  loader.querySelector('#sweetStatus').textContent='先准备 2024 年和 2025 年上半年的照片，其余进入后继续加载。';
+  const progress=()=>{const count=imageMarkers.filter(m=>ready.has(m)).length;const percent=imageMarkers.length?Math.floor(count/imageMarkers.length*100):100;loader.querySelector('.sweet-fill').style.width=percent+'%';loader.querySelector('#sweetPercent').textContent=percent+'%';loader.querySelector('#sweetProgress').setAttribute('aria-valuenow',percent);loader.querySelector('#sweetCount').textContent=`已收好 ${count} / ${imageMarkers.length} 张照片与视频封面`;};
   async function prepare(marker){
    for(let attempt=0;attempt<2;attempt++){
     try{const value=await load(marker);const img=new Image();img.src=value.url;await img.decode();ready.add(marker);progress();return true;}
@@ -92,6 +95,23 @@
   // Classic scripts intentionally share the same lexical scope, as in the source album.
   for(const name of ['app.js','scrapbook.js','mobile.js']){const script=document.createElement('script');script.textContent=bundle.files[name];document.body.append(script);}
   inspect(document.body);
+  // Keep the entrance bounded to the requested date range. Remaining stills use
+  // two background workers, leaving capacity for visible photos and video clicks.
+  const background=allImageMarkers.filter(marker=>!ready.has(marker));
+  const badge=document.createElement('aside');badge.id='backgroundMemories';badge.setAttribute('role','status');
+  badge.style.cssText='position:fixed;bottom:8px;left:8px;z-index:110;max-width:230px;padding:9px 12px;border:1px solid #edd4e0;border-radius:18px;background:#fff9f3f2;color:#976b81;font:11px/1.6 sans-serif;box-shadow:0 2px 10px #a47b9217';
+  const backgroundReady=new Set();let backgroundRunning=false;
+  function backgroundProgress(){badge.textContent=`剩余回忆轻轻加载中 ♡ ${backgroundReady.size}/${background.length}`;}
+  async function runBackground(){
+   if(backgroundRunning||backgroundReady.size===background.length)return;
+   backgroundRunning=true;backgroundProgress();
+   let cursor=0;const remaining=background.filter(m=>!backgroundReady.has(m));
+   await Promise.all(Array.from({length:Math.min(2,remaining.length)},async()=>{while(cursor<remaining.length){const marker=remaining[cursor++];if(await prepare(marker))backgroundReady.add(marker);backgroundProgress();}}));
+   backgroundRunning=false;
+   if(backgroundReady.size===background.length){badge.textContent='所有照片都准备好了 ♡';setTimeout(()=>badge.remove(),4000);}
+   else{badge.textContent=`还有 ${background.length-backgroundReady.size} 张未完成 `;const retry=document.createElement('button');retry.textContent='轻点重试 ♡';retry.onclick=runBackground;badge.append(retry);}
+  }
+  if(background.length){document.body.append(badge);setTimeout(runBackground,500);window.addEventListener('online',runBackground);}
   document.addEventListener('click',e=>{if(e.target.closest('#lockAlbum')){e.preventDefault();e.stopImmediatePropagation();location.reload();}},{capture:true});
   window.addEventListener('pagehide',()=>{observer.disconnect();visible.disconnect();for(const value of cache.values())URL.revokeObjectURL(value.url);});
   window.addEventListener('pageshow',e=>{if(e.persisted)location.reload();});
