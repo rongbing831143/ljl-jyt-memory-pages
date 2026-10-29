@@ -19,6 +19,12 @@
   const placeholder='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%223%22 height=%224%22%3E%3Crect width=%223%22 height=%224%22 fill=%22%23e8e1d2%22/%3E%3C/svg%3E';
   let index=0;const aliases={};for(const [src,entry]of Object.entries(bundle.media)){const marker=placeholder+'#sealed-'+index++;aliases[src]=marker;entries.set(marker,entry);}
   window.EMBEDDED_ID='-encrypted-pages-v1';
+  if(bundle.snapshot){
+   window.EMBEDDED_ID+='-'+bundle.snapshotRevision;
+   window.SCRAPBOOK_SNAPSHOT=bundle.snapshot;
+   window.EMBEDDED_EDITS=bundle.snapshot.edits;
+   try{localStorage.setItem('ljl-jyt-universe-v1'+window.EMBEDDED_ID+'-chronology-migrated','1');}catch{}
+  }
   const stored={APP_TEMPLATE:'index.html',APP_CSS:'style.css',STUDIO_CSS:'scrapbook.css',MOBILE_CSS:'mobile.css',APP_JS:'app.js',STUDIO_JS:'scrapbook.js',MOBILE_JS:'mobile.js'};
   for(const [global,name]of Object.entries(stored))window[global]=bundle.files[name];
   let active=0;const waiting=[];
